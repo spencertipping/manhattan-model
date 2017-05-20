@@ -298,5 +298,40 @@ $ ni n400e[ xargs -P24 -I{} ni \
                 $o->slice("X", [$px-$ts, $px+$ts], [$py-$ts, $py+$ts])
                   += $i->slice("X", [$rx-$ts, $rx+$ts], [$ry-$ts, $ry+$ts]);
               }
-              $o->wpic(sprintf "0046-%04d.jpg", a)' ]
+              $o->clip(0, 256 * ($ts/15)**2)->wpic(sprintf "0046-%04d.jpg", a)' ]
+
+$ ffmpeg -i 0046-%04d.jpg 0046.webm
+```
+
+[Here's the video](http://spencertipping.com/mm-0046.webm).
+
+Not bad at all, especially considering that we're doing nothing to correct for
+rotation. Frames 66 and 76 should yield a much more accurate depth map for that
+reason:
+
+```sh
+$ ni n400e[ xargs -P24 -I{} ni \
+            ::depths[phc5-offsets rp'a eq "0066"' fC. \
+              p'my $dx = d>120 ? d-240 : d;
+                my $dy = e>120 ? e-240 : e;
+                r a.",".b, 1 / (1e-8 + sqrt($dx**2 + $dy**2) / 120)'] \
+            i{} \
+            p'use PDL; use PDL::IO::Pic; use PDL::Image2D;
+              my %d = ab_ depths;
+              my $dx = a*20;
+              my $ts = 45;
+              my $i = rpic "v1/0066.ppm";
+              my $o = double $i * 0;
+              for my $xy (sort {$d{$b} <=> $d{$a}} keys %d) {
+                my ($x, $y)   = split /,/, $xy;
+                my ($rx, $ry) = ($x + 120, $y + 120);
+                my ($px, $py) = ($rx - $dx/$d{"$x,$y"}, $ry);
+                next unless within($ts, 3840-$ts-1, $rx, $px)
+                         && within($ts, 2160-$ts-1, $ry, $py);
+                $o->slice("X", [$px-$ts, $px+$ts], [$py-$ts, $py+$ts])
+                  += $i->slice("X", [$rx-$ts, $rx+$ts], [$ry-$ts, $ry+$ts]);
+              }
+              $o->clip(0, 256 * ($ts/15)**2)->wpic(sprintf "0066-%04d.jpg", a)' ]
+
+$ ffmpeg -i 0066-%04d.jpg 0066.webm
 ```
