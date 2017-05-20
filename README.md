@@ -240,4 +240,29 @@ structure visible in this data; we're getting parallel lines for the buildings.
 
 ![image](http://storage9.static.itmages.com/i/17/0520/h_1495275930_1995187_611b5d263a.png)
 
+Let's see if the model converges as we do this for more frames. I'm also going
+to decrease the overlap to speed it up.
 
+```sh
+$ ni n290rp'a > 45' \
+     e[ xargs -P24 -I{} ni i{} \
+        p'r sprintf "%04d\t%04d", a, a+10' \
+        p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+          my $ia = rpic "v1/".a.".ppm";
+          my $ib = rpic "v1/".b.".ppm";
+          for my $tx (map $_*30, 0..(3840-60)/30) {
+            for my $ty (map $_*30, 0..(2160-60)/30) {
+              my $i1 = $ia->slice("X", [$tx, $tx+59], [$ty, $ty+59]);
+              my $i2 = $ib->slice("X", [$tx, $tx+59], [$ty, $ty+59]);
+              ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape(60, 60);
+              ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape(60, 60);
+              fftnd $i1, my $i1i = $i1*0;
+              fftnd $i2, my $i2i = $i2*0;
+              $i2i *= -1;
+              ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+                     my $hi = $i1i*$i2 + $i2i*$i1;
+              r a, b, $tx, $ty, (($hr**2)+($hi**2))->max2d_ind;
+            }
+          }' ] \
+     z\>phc5-offsets
+```
