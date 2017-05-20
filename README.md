@@ -240,24 +240,28 @@ structure visible in this data; we're getting parallel lines for the buildings.
 
 ![image](http://storage9.static.itmages.com/i/17/0520/h_1495275930_1995187_611b5d263a.png)
 
-Let's see if the model converges as we do this for more frames. I'm also going
-to decrease the overlap to speed it up.
+Let's see if the model converges as we do this for more frames. I'm going to
+use 240x240 tiles so we get a more accurate alignment; I've also lowpassed the
+FFT so we don't catch so much noise.
 
 ```sh
 $ ni n290rp'a > 45' \
      e[ xargs -P24 -I{} ni i{} \
         p'r sprintf "%04d\t%04d", a, a+10' \
         p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+          BEGIN{$fm = ones(60, 60)->append(zeroes 180, 60)
+                                  ->glue(1, zeroes 240, 180)}
           my $ia = rpic "v1/".a.".ppm";
           my $ib = rpic "v1/".b.".ppm";
-          for my $tx (map $_*30, 0..(3840-60)/30) {
-            for my $ty (map $_*30, 0..(2160-60)/30) {
-              my $i1 = $ia->slice("X", [$tx, $tx+59], [$ty, $ty+59]);
-              my $i2 = $ib->slice("X", [$tx, $tx+59], [$ty, $ty+59]);
-              ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape(60, 60);
-              ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape(60, 60);
+          for my $tx (map $_*30, 0..(3840-240)/30) {
+            for my $ty (map $_*30, 0..(2160-240)/30) {
+              my $i1 = $ia->slice("X", [$tx, $tx+239], [$ty, $ty+239]);
+              my $i2 = $ib->slice("X", [$tx, $tx+239], [$ty, $ty+239]);
+              ($i1 = $i1(0) + $i1(1) + $i1(2))->reshape(240, 240);
+              ($i2 = $i2(0) + $i2(1) + $i2(2))->reshape(240, 240);
               fftnd $i1, my $i1i = $i1*0;
               fftnd $i2, my $i2i = $i2*0;
+              $_ *= $fm for $i1, $i2, $i1i, $i2i;
               $i2i *= -1;
               ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
                      my $hi = $i1i*$i2 + $i2i*$i1;
@@ -265,4 +269,34 @@ $ ni n290rp'a > 45' \
             }
           }' ] \
      z\>phc5-offsets
+```
+
+![image](http://storage2.static.itmages.com/i/17/0520/h_1495284242_8583864_809885e3bd.png)
+
+Now let's apply these offsets to frame 46 to see if it looks reasonable. We can
+do this by animating a lateral slide.
+
+```sh
+$ ni n400e[ xargs -P24 -I{} ni \
+            ::depths[phc5-offsets rp'a eq "0046"' fC. \
+              p'my $dx = d>120 ? d-240 : d;
+                my $dy = e>120 ? e-240 : e;
+                r a.",".b, 1 / (1e-8 + sqrt($dx**2 + $dy**2) / 120)'] \
+            i{} \
+            p'use PDL; use PDL::IO::Pic; use PDL::Image2D;
+              my %d = ab_ depths;
+              my $dx = a*20;
+              my $ts = 60;
+              my $i = rpic "v1/0046.ppm";
+              my $o = double $i * 0;
+              for my $xy (sort {$d{$b} <=> $d{$a}} keys %d) {
+                my ($x, $y)   = split /,/, $xy;
+                my ($rx, $ry) = ($x + 120, $y + 120);
+                my ($px, $py) = ($rx - $dx/$d{"$x,$y"}, $ry);
+                next unless within($ts, 3840-$ts-1, $rx, $px)
+                         && within($ts, 2160-$ts-1, $ry, $py);
+                $o->slice("X", [$px-$ts, $px+$ts], [$py-$ts, $py+$ts])
+                  += $i->slice("X", [$rx-$ts, $rx+$ts], [$ry-$ts, $ry+$ts]);
+              }
+              $o->wpic(sprintf "0046-%04d.jpg", a)' ]
 ```
