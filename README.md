@@ -22,7 +22,9 @@ Let's start with a couple of frames with few immediate obstructions. Frame 46
 occurs just after the woman leaves the left side of the screen; frame 76
 happens one second later, after the car has moved about six feet forwards. If
 we tile out the images and do phase correlation on the tiles, we should be able
-to get a vector field.
+to get a vector field. Here's 46:
+
+![image](http://storage5.static.itmages.com/i/17/0520/h_1495271539_8655813_b241d25609.png)
 
 First let's figure out how long the PPM prefix is:
 
@@ -40,9 +42,9 @@ $ ni v1/0046.ppm bp'r rp "c8"' r10
 87      86      100     93      92      103     96      93
 ```
 
-The last `10` is at byte 17, so that's where the header ends. Since all of the
-images are the same size and have no metadata, that will be true for every
-frame. Finding possible tile dimensions:
+The last `10` (ASCII newline) is at byte 17, so that's where the header ends.
+Since all of the images are the same size and have no metadata, that will be
+true for every frame. Finding possible tile dimensions:
 
 ```sh
 $ factor 2160 3840
@@ -128,4 +130,114 @@ $ ni n0=16*9 \
 
 Now _that_ looks good. This means the basic idea works; more data points and
 more assumptions and we should be able to get a very fine-grained
-reconstruction.
+reconstruction. Let's try using smaller tiles and adjacent frames.
+
+```sh
+$ ni i0046 i0047 \
+     p'use PDL; use PDL::IO::Pic;
+       my $i = rpic "v1/".a.".ppm";
+       for (0..3840*2160 / 60**2 - 1) {
+         my ($tx, $ty) = ($_ * 60 % 3840, 60 * ($_ >> 6));
+         wpic $i->slice("X", [$tx, $tx+59], [$ty, $ty+59]), "v1/".a."-$_.ppm";
+       }'
+
+$ ni n0=3840*2160/20**2 \
+     p'use PDL; use PDL::IO::Pic; use PDL::FFT; use PDL::Complex; use PDL::Image2D;
+       my $i1 = double rpic "v1/0046-$_.ppm";
+       my $i2 = double rpic "v1/0047-$_.ppm";
+       ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape(60, 60);
+       ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape(60, 60);
+       fftnd $i1, my $i1i = $i1*0;
+       fftnd $i2, my $i2i = $i2*0;
+       $i2i *= -1;
+       ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+              my $hi = $i1i*$i2 + $i2i*$i1;
+       (my $h = (($hr**2)+($hi**2)))->wpic("phc3-$_.png");
+       r a >> 6, a & 63, $h->max2d_ind' \
+     :phc3-offsets p'r a*60, b*60, 10*(e>30 ? e-60 : e), 10*(d>30 ? d-60 : d)' \
+  | nfu -p %v
+```
+
+![image](http://storage2.static.itmages.com/i/17/0520/h_1495271457_9644589_0c89d45dc8.png)
+
+### Shape inference
+Right now we have a circular problem: in order to recover the camera motion we
+need a surface map, and in order to build a surface map we need to know the
+camera motion. Fundamentally this is an unavoidable ambiguity; the camera isn't
+going to pick up on planetary movement, for example -- so its motion vector is
+relative to the ground, not absolute in any sense.
+
+All of that is fine for us, of course. We can safely assume the most common
+behavior for an object is not to move, which (almost) implies that we can then
+take the largest set of motion vectors that would be consistent with a linear
+camera movement and infer camera motion accordingly.
+
+The (almost) comes in because while most objects don't move, most _visible_
+objects might. Imagine a driving video that stops for a train, for example, and
+the train covers more than half the screen. Then we'd infer that the camera is
+moving rapidly left or right and that non-train objects are moving with it. For
+now I'm going to ignore this case.
+
+#### More motion vectors
+If we want to do shape inference, we're going to need a lot more data. I'm also
+going to start considering the magnitude of the phase correlation output as a
+way to assess signal strength. Here's the idea:
+
+1. Let's use overlapping tiles to get more motion vectors without losing
+   context.
+2. Let's also use the normalized phase correlation magnitude to measure changes
+   in depth relative to the camera (or any other instability that makes it
+   difficult to infer structure).
+
+For (1), let's do 60x60 tiles that overlap by 15px in each dimension. I'm going
+to start using proper tile IDs here because the edge cases make it more
+complicated to translate the numbers back into coordinates. I'm also going to
+fuse the two commands to avoid writing all of the tiles now that we have a
+nontrivial number of them.
+
+```sh
+$ ni i[0046 0051] \
+     p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+       my $ia = rpic "v1/".a.".ppm";
+       my $ib = rpic "v1/".b.".ppm";
+       for my $tx (map $_*15, 0..(3840-60)/15) {
+         for my $ty (map $_*15, 0..(2160-60)/15) {
+           my $i1 = $ia->slice("X", [$tx, $tx+59], [$ty, $ty+59]);
+           my $i2 = $ib->slice("X", [$tx, $tx+59], [$ty, $ty+59]);
+           ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape(60, 60);
+           ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape(60, 60);
+           fftnd $i1, my $i1i = $i1*0;
+           fftnd $i2, my $i2i = $i2*0;
+           $i2i *= -1;
+           ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+                  my $hi = $i1i*$i2 + $i2i*$i1;
+           r $tx, $ty, (($hr**2)+($hi**2))->max2d_ind;
+         }
+       }' \
+     :phc4-offsets p'r a, b, 10*(e>30 ? e-60 : e), 10*(d>30 ? d-60 : d)' \
+  | nfu -p %v
+```
+
+![image](http://storage5.static.itmages.com/i/17/0520/h_1495274584_5413198_add89fd793.png)
+
+If we immediately map vector magnitude to reciprocal of depth and assume a
+horizontal view angle of 90 degrees, here's the model we get.
+
+```sh
+$ ni phc4-offsets p'my $dx = d>30 ? d-60 : d;
+                    my $dy = e>30 ? 3-60 : e;
+                    my $depth = 1 / (1e-12 + sqrt($dx**2 + $dy**2) / 300);
+                    my $dx = $depth * (a/3840 - 0.5);
+                    my $dy = $depth * (b/3840 - 0.5);
+                    my $dz = sqrt $depth**2 - ($dx**2 + $dy**2);
+                    r $dx, $dy, $dz, c'
+```
+
+![image](http://storage2.static.itmages.com/i/17/0520/h_1495275372_7844836_50d7f963fd.png)
+
+This really isn't bad. There are a lot of artifacts, but there's also a lot of
+structure visible in this data; we're getting parallel lines for the buildings.
+
+![image](http://storage9.static.itmages.com/i/17/0520/h_1495275930_1995187_611b5d263a.png)
+
+
