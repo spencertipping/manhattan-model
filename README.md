@@ -86,13 +86,46 @@ $ ni n0=16*9 \
 Here's the vector field:
 
 ```sh
-$ ni phc-offsets p'r a*240, b*240, d>120 ? 240 - d : d, e>120 ? 240 - e : e' \
+$ ni phc-offsets p'r a*240, b*240, e>120 ? e-240 : e, d>120 ? d-240 : d' \
   | nfu -p %v
 ```
 
-![image](http://storage2.static.itmages.com/i/17/0520/h_1495246121_9262163_7f18e93e83.png)
+![image](http://storage5.static.itmages.com/i/17/0520/h_1495246704_8832143_d84f6bc10f.png)
 
-Ok, the bad news is that this is completely wrong. The good news, though, is
-that the vector field actually does resemble what we expect: high values around
-the edges and lower values in the middle. In other words, we have a vanishing
-point.
+Ok, so not perfect -- but not awful either. It's definitely possible to see the
+structure here. In fact, we can probably do much better if we choose two images
+closer together; let's repeat this for 0046 and 0051.
+
+```sh
+$ ni i0046 i0051 \
+     p'use PDL; use PDL::IO::Pic;
+       my $i = rpic "v1/".a.".ppm";
+       for (0..3840*2160 / 240**2 - 1) {
+         my ($tx, $ty) = ($_ * 240 % 3840, 240 * ($_ >> 4));
+         wpic $i->slice("X", [$tx, $tx+239], [$ty, $ty+239]), "v1/".a."-$_.ppm";
+       }'
+
+$ ni n0=16*9 \
+     p'use PDL; use PDL::IO::Pic; use PDL::FFT; use PDL::Complex; use PDL::Image2D;
+       my $i1 = double rpic "v1/0046-$_.ppm";
+       my $i2 = double rpic "v1/0051-$_.ppm";
+       ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape(240, 240);
+       ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape(240, 240);
+       fftnd $i1, my $i1i = $i1*0;
+       fftnd $i2, my $i2i = $i2*0;
+       $i2i *= -1;
+       ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+              my $hi = $i1i*$i2 + $i2i*$i1;
+       (my $h = (($hr**2)+($hi**2)))->wpic("phc2-$_.png");
+       r a >> 4, a & 15, $h->max2d_ind' \
+     :phc2-offsets p'r a*240, b*240, 10*(e>120 ? e-240 : e), 10*(d>120 ? d-240 : d)' \
+  | nfu -p %v
+```
+
+(Notice I've multiplied the vectors to make them stand out more.)
+
+![image](http://storage8.static.itmages.com/i/17/0520/h_1495246954_3239089_2dc73529c2.png)
+
+Now _that_ looks good. This means the basic idea works; more data points and
+more assumptions and we should be able to get a very fine-grained
+reconstruction.
