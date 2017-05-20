@@ -10,7 +10,8 @@ $ youtube-dl D3oFGOJr-ak -o v1.mp4
 ```
 
 Now let's extract ten seconds of still frames. PPM is slow to encode but easy
-to manipulate.
+to manipulate (**NB:** this was a mistake in hindsight; PNG is more appropriate
+given that we're using PDL to load the images.)
 
 ```sh
 $ mkdir v1
@@ -26,25 +27,7 @@ to get a vector field. Here's 46:
 
 ![image](http://storage5.static.itmages.com/i/17/0520/h_1495271539_8655813_b241d25609.png)
 
-First let's figure out how long the PPM prefix is:
-
-```sh
-$ ni v1/0046.ppm bp'r rp "c8"' r10
-80      54      10      51      56      52      48      32
-50      49      54      48      10      50      53      53
-10      25      27      27      25      27      27      29
-29      29      30      30      30      30      30      30
-30      30      30      33      30      34      34      31
-35      36      30      35      37      31      36      36
-30      37      35      29      36      36      30      37
-40      34      41      60      53      55      86      79
-81      88      81      83      91      84      86      94
-87      86      100     93      92      103     96      93
-```
-
-The last `10` (ASCII newline) is at byte 17, so that's where the header ends.
-Since all of the images are the same size and have no metadata, that will be
-true for every frame. Finding possible tile dimensions:
+Possible tile dimensions:
 
 ```sh
 $ factor 2160 3840
