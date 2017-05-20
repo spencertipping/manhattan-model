@@ -318,3 +318,9 @@ $ ni n400e[ xargs -P24 -I{} ni \
 
 $ ffmpeg -i 0066-%04d.jpg 0066.webm
 ```
+
+[Result](http://spencertipping.com/mm-0066.webm).
+
+The buildings skew opposite directions in the two videos, which means depth
+inference is very sensitive to camera rotation. That's probably the next thing
+to address.
