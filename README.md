@@ -324,3 +324,46 @@ $ ffmpeg -i 0066-%04d.jpg 0066.webm
 The buildings skew opposite directions in the two videos, which means depth
 inference is very sensitive to camera rotation. That's probably the next thing
 to address.
+
+### Better depth mapping
+Right now I'm using a bogus heuristic to infer depth: if we're moving towards
+the vanishing point, then depth = 1 / tile shifting. But this is a problem in a
+world where the camera can tilt or shift within the XY plane. We need a better
+model.
+
+The math is nontrivial, but we can go ahead and generate the full motion
+inference frame by frame. I'm going to use single-frame differences and 60x60
+tiles with 3x3 overlap.
+
+```sh
+$ ffmpeg -i v1.mp4 v1/%06d.png
+$ ls v1/*??????.png | wc -l
+62292
+$ ni n62291 \
+     e[ xargs -P24 -I{} ni i{} \
+        p'r sprintf "%06d\t%06d", a, a+1' \
+        p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+          BEGIN{$ts = 60;
+                $to = 3;
+                $fm = ones($ts/4, $ts/4)
+                  ->append(zeroes $ts*3/4, $ts/4)
+                  ->glue(1, zeroes $ts, $ts*3/4)}
+          my $ia = rpic "v1/".a.".png";
+          my $ib = rpic "v1/".b.".png";
+          for my $tx (map $_*$to, 0..(3840-$ts)/$to) {
+            for my $ty (map $_*$to, 0..(2160-$ts)/$to) {
+              my $i1 = $ia->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              my $i2 = $ib->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape($ts, $ts);
+              ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape($ts, $ts);
+              fftnd $i1, my $i1i = $i1*0;
+              fftnd $i2, my $i2i = $i2*0;
+              $_ *= $fm for $i1, $i2, $i1i, $i2i;
+              $i2i *= -1;
+              ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+                     my $hi = $i1i*$i2 + $i2i*$i1;
+              r a, b, $tx, $ty, (($hr**2)+($hi**2))->max2d_ind;
+            }
+          }' ] \
+     z\>phc-full-offsets
+```
