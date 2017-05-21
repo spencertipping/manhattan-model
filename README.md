@@ -333,7 +333,7 @@ model.
 
 The math is nontrivial, but we can go ahead and generate the full motion
 inference frame by frame. I'm going to use single-frame differences and 60x60
-tiles with 3x3 overlap.
+tiles with 15x15 spacing.
 
 ```sh
 $ ffmpeg -i v1.mp4 v1/%06d.png
@@ -344,7 +344,8 @@ $ ni n62291 \
         p'r sprintf "%06d\t%06d", a, a+1' \
         p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
           BEGIN{$ts = 60;
-                $to = 3;
+                $to = 15;
+                $maxs = 16;
                 $fm = ones($ts/4, $ts/4)
                   ->append(zeroes $ts*3/4, $ts/4)
                   ->glue(1, zeroes $ts, $ts*3/4)}
@@ -362,8 +363,21 @@ $ ni n62291 \
               $i2i *= -1;
               ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
                      my $hi = $i1i*$i2 + $i2i*$i1;
-              r a, b, $tx, $ty, (($hr**2)+($hi**2))->max2d_ind;
+              my $h = $hr**2 + $hi**2;
+              my @maxs;
+              until (@maxs >= $maxs * 3) {
+                push @maxs, my ($m, $mi, $mj) = $h->max2d_ind;
+                $h->set($mi, $mj, 0);
+              }
+              r a, b, $tx, $ty, @maxs;
             }
           }' ] \
      z\>phc-full-offsets
+```
+
+Rough guess for ETA (based on values from the ni monitor):
+
+```sh
+$ units -t '700MB / 48 * 62291 / (1541kB/s)' days
+6.9398116
 ```
