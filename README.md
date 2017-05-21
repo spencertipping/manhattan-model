@@ -379,3 +379,57 @@ Rough guess for ETA (based on values from the ni monitor):
 $ units -t '700MB / 48 * 62291 / (1541kB/s)' days
 6.9398116
 ```
+
+While that's going, let's look at some aerial data.
+
+### Aerial motion vectors
+These are way less straightforward than driving because drones are both more
+agile and less directional than cars are. [Here's the source
+video](https://www.youtube.com/watch?v=pbNEeAAiIKk).
+
+```sh
+$ youtube-dl pbNEeAAiIKk -o v2.webm
+$ mkdir v2
+$ ffmpeg -i v2.webm v2/%06d.png
+```
+
+This video is a lot shorter than the first one, but it also includes scene
+transitions and other complications. Using the same tiling strategy we did for
+v1:
+
+```sh
+$ ls v2/*.png | wc -l
+6477
+$ ni n6476p'r sprintf "%06d\t%06d", a, a+1' \
+     S24p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+          BEGIN{$ts = 60;
+                $to = 15;
+                $maxs = 16;
+                $fm = ones($ts/4, $ts/4)
+                  ->append(zeroes $ts*3/4, $ts/4)
+                  ->glue(1, zeroes $ts, $ts*3/4)}
+          my $ia = rpic "v2/".a.".png";
+          my $ib = rpic "v2/".b.".png";
+          for my $tx (map $_*$to, 0..(3840-$ts)/$to) {
+            for my $ty (map $_*$to, 0..int((2026-$ts)/$to)) {
+              my $i1 = $ia->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              my $i2 = $ib->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape($ts, $ts);
+              ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape($ts, $ts);
+              fftnd $i1, my $i1i = $i1*0;
+              fftnd $i2, my $i2i = $i2*0;
+              $_ *= $fm for $i1, $i2, $i1i, $i2i;
+              $i2i *= -1;
+              ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+                     my $hi = $i1i*$i2 + $i2i*$i1;
+              my $h = $hr**2 + $hi**2;
+              my @maxs;
+              until (@maxs >= $maxs * 3) {
+                push @maxs, my ($m, $mi, $mj) = $h->max2d_ind;
+                $h->set($mi, $mj, 0);
+              }
+              r a, b, $tx, $ty, @maxs;
+            }
+          }' \
+     z\>phc-v2-offsets
+```
