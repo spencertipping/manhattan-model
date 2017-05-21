@@ -339,10 +339,8 @@ tiles with 15x15 spacing.
 $ ffmpeg -i v1.mp4 v1/%06d.png
 $ ls v1/*??????.png | wc -l
 62292
-$ ni n62291 \
-     e[ xargs -P24 -I{} ni i{} \
-        p'r sprintf "%06d\t%06d", a, a+1' \
-        p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+$ ni n62291p'r sprintf "%06d\t%06d", a, a+1' \
+     S24p'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
           BEGIN{$ts = 60;
                 $to = 15;
                 $maxs = 16;
@@ -371,7 +369,7 @@ $ ni n62291 \
               }
               r a, b, $tx, $ty, @maxs;
             }
-          }' ] \
+          }' \
      z\>phc-full-offsets
 ```
 
