@@ -433,3 +433,15 @@ $ ni n6476p'r sprintf "%06d\t%06d", a, a+1' \
           }' \
      z\>phc-v2-offsets
 ```
+
+Here's an animation of those motion vectors (the simple version; we're not
+doing subpixel registration yet):
+
+```sh
+$ ni phc-v2-offsets fACDFGoz:phc-v2-frames \
+     p'r a, b, c, d>=30 ? d-60 : d, e>=30 ? e-60 : e' p'r a, b, c, d*4, e*4' \
+     GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "#c0000000"' \
+     GF[-y -qscale 5 phc-v2-motion.avi]
+```
+
+[Video on youtube](https://www.youtube.com/watch?v=naJPkZfB0Xk).
