@@ -466,6 +466,32 @@ $ ni phc-v2-offsets fACDFGoz:phc-v2-frames \
 
 [![motion vectors](https://img.youtube.com/vi/naJPkZfB0Xk/0.jpg)](https://www.youtube.com/watch?v=naJPkZfB0Xk)
 
+### Subpixel registration
+Right now I'm just taking the largest-magnitude alignment offset, but a more
+accurate approach would be to start there and use a linear weighting to shift
+the centroid. I'm also removing any points that would pull the centroid too far
+away since those are most likely outliers. Here's what this process looks like:
+
+```sh
+$ export NI_ROW_SORT_BUFFER=16384M
+$ ni phc-full-offsets \
+     S8rp'a < 1000' \
+     S8p'my ($f, undef, $x, $y) = F_ 0..3;
+         my @mags = F_ map $_*3 + 4, 0..15;
+         my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
+         my @ys   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 6, 0..15;
+         my ($cx, $cy, $w) = ($xs[0], $ys[0], 0);
+         for (0..$#mags) {
+           next if 3 < l2norm $cx - $xs[$_], $cy - $ys[$_];
+           $cx = $cx*$w + $xs[$_]*$mags[$_];
+           $cy = $cy*$w + $ys[$_]*$mags[$_];
+           $w += $mags[$_];
+           $cx /= $w; $cy /= $w;
+         }
+         r $f, $x, $y, $cx, $cy' \
+     oz\>phc-v1-subpixel-1k-sorted
+```
+
 ### Making this remotely scalable
 One of the major problems with the current approach is that we're losing all of
 the benefits of video encoding by unpacking each frame. This results in some
@@ -494,8 +520,6 @@ window of two images:
 $ convert -size 3840x4320 xc:black v1/000001.png -append \
           -crop 3840x4320+0+2160\! v1-frames-joined-cropped.png
 ```
-
-![image](http://storage1.static.itmages.com/i/17/0529/h_1496083295_8153734_7b96bb1ed4.png)
 
 Here's that process inside a compositing loop that emits these windows as
 individual 3840x4320 images, in this case reassembling into another AVI so I
