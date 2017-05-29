@@ -394,12 +394,13 @@ $ ni phc-full-offsets fACDFGoz:phc-full-frames \
      GF[-y -qscale 5 phc-v1-motion.avi]
 ```
 
-This is a 34GB video and I don't want angry letters from CenturyLink, so I need
-to recompress using webm/VP9:
+The video is 34GB, so I'm going to spare my wifi and upload directly from the
+server. I used xpra to access a browser running inside the docker container,
+then uploaded the video from there. CenturyLink says they only count downloaded
+data in their excessive use policy so I'm reasonably confident they won't send
+me angry letters for uploading this much. (We'll see.)
 
-```sh
-$ ffmpeg -i phc-v1-motion.avi -crf 15 -b:v 0 -threads 24 phc-v1-motion.webm
-```
+**TODO:** Link the video here once it's uploaded
 
 ### Aerial motion vectors
 These are way less straightforward than driving because drones are both more
@@ -463,4 +464,113 @@ $ ni phc-v2-offsets fACDFGoz:phc-v2-frames \
      GF[-y -qscale 5 phc-v2-motion.avi]
 ```
 
-[Video on youtube](https://www.youtube.com/watch?v=naJPkZfB0Xk).
+[![motion vectors](https://img.youtube.com/vi/naJPkZfB0Xk/0.jpg)](https://www.youtube.com/watch?v=naJPkZfB0Xk)
+
+### Making this remotely scalable
+One of the major problems with the current approach is that we're losing all of
+the benefits of video encoding by unpacking each frame. This results in some
+fairly major disk space usage; over 100x expansion:
+
+```sh
+$ du -shL v1.mp4 v1
+4.5G    v1.mp4          # original video
+596G    v1              # unpacked frames
+```
+
+Since we're just looking at adjacent frames, it's a bit silly to unpack
+everything up front. It's better to use image compositing to adjoin + shift the
+images so we end up with pairs of frames. Here's the general idea:
+
+```sh
+$ convert v1/000001.png v1/000002.png -append v1-frames-joined.png
+```
+
+![image](http://storage1.static.itmages.com/i/17/0529/h_1496083295_8153734_7b96bb1ed4.png)
+
+We start with 3840x4320 of solid black and crop downwards to maintain a sliding
+window of two images:
+
+```sh
+$ convert -size 3840x4320 xc:black v1/000001.png -append \
+          -crop 3840x4320+0+2160\! v1-frames-joined-cropped.png
+```
+
+![image](http://storage1.static.itmages.com/i/17/0529/h_1496083295_8153734_7b96bb1ed4.png)
+
+Here's that process inside a compositing loop that emits these windows as
+individual 3840x4320 images, in this case reassembling into another AVI so I
+can make sure it's working:
+
+```sh
+$ ni e[ffmpeg -i v1.mp4 -to 00:05 -f image2pipe -c:v png -] \
+     IC[-size 3840x2160 xc:black -insert 0 -append] \
+       [- -append -crop 3840x4320+0+2160\!] : \
+     IJGF[-y v1-combined.avi]
+```
+
+[![streaming frame pairs](https://img.youtube.com/vi/M7h26AmYTTs/0.jpg)](https://www.youtube.com/watch?v=M7h26AmYTTs)
+
+**Warning:** I recommend against doing things like this if you're using an SSD
+instead of a magnetic disk. Although it won't use the 596GB all at once, we're
+going to write about twice that to the disk total -- so if your SSD is 200GB,
+then that's six writes to every byte on the disk.
+
+The command above just re-encodes the frame pairs into a movie, but it's simple
+enough to use the phase correlation code to generate offsets (and now we
+migrate the multithreading to rows of the image, rather than separate images):
+
+```sh
+$ ni e[ffmpeg -i v1.mp4 -to 00:05 -f image2pipe -c:v png -] \
+     IC[-size 3840x2160 xc:black -insert 0 -append] \
+       [- -append -crop 3840x4320+0+2160\!] : \
+     Ie[ perl -e \
+       'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+        use File::Temp qw/tmpnam/;
+        BEGIN{$ts = 60;
+              $to = 15;
+              $maxs = 16;
+              $fm = ones($ts/4, $ts/4)
+                ->append(zeroes $ts*3/4, $ts/4)
+                ->glue(1, zeroes $ts, $ts*3/4)}
+        my $t  = tmpnam; system "cat > $t";
+        my $i  = rpic $t, {FORMAT => "PNG"};
+        my $ia = $i->slice("X", "X", [0, 2159]);
+        my $ib = $i->slice("X", "X", [2160, 4319]);
+        my @pids;
+        for my $tx (map $_*$to, 0..(3840-$ts)/$to) {
+          my $pid;
+          if ($pid = fork) {
+            push @pids, $pid;
+          } else {
+            for my $ty (map $_*$to, 0..(2160-$ts)/$to) {
+              my $i1 = $ia->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              my $i2 = $ib->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape($ts, $ts);
+              ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape($ts, $ts);
+              fftnd $i1, my $i1i = $i1*0;
+              fftnd $i2, my $i2i = $i2*0;
+              $_ *= $fm for $i1, $i2, $i1i, $i2i;
+              $i2i *= -1;
+              ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+                     my $hi = $i1i*$i2 + $i2i*$i1;
+              my $h = $hr**2 + $hi**2;
+              my @maxs;
+              until (@maxs >= $maxs * 3) {
+                push @maxs, my ($m, $mi, $mj) = $h->max2d_ind;
+                $h->set($mi, $mj, 0);
+              }
+              print join("\t", $ENV{KEY}, $tx, $ty, @maxs) . "\n";
+            }
+            exit 0;
+          }
+        }
+        waitpid $_, 0 for @pids;
+        unlink($t) or die "not unlinking temp images: $!"' ] \
+     z:phc-v1-streaming-offsets \
+     fABCEFp'r a, b, c, d>=30 ? d-60 : d, e>=30 ? e-60 : e' \
+     p'r a, b, c, d*4, e*4' \
+     GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "black"' \
+     GF[-y -qscale 5 phc-v1-streaming-motion.avi]
+```
+
+**TODO:** Upload this video once it's done
