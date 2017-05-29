@@ -380,7 +380,21 @@ $ units -t '700MB / 48 * 62291 / (1541kB/s)' days
 6.9398116
 ```
 
-While that's going, let's look at some aerial data.
+Alright, that's now done (about nine days total, but I was running other stuff
+while it was going). Animating these vectors:
+
+```sh
+$ ls -lh phc-full-offsets               # this file's kinda big
+-rw-r--r-- 1 spencertipping spencertipping 327G May 28 18:26 phc-full-offsets
+
+$ export NI_ROW_SORT_BUFFER=16384M
+$ ni phc-full-offsets fACDFGoz:phc-full-frames \
+     p'r a, b, c, d>=30 ? d-60 : d, e>=30 ? e-60 : e' p'r a, b, c, d*4, e*4' \
+     GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "#c0000000"' \
+     GF[-y -qscale 5 phc-v1-motion.avi]
+```
+
+**TODO:** Upload this to youtube once it's done
 
 ### Aerial motion vectors
 These are way less straightforward than driving because drones are both more
