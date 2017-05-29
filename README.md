@@ -541,7 +541,14 @@ then that's six writes to every byte on the disk.
 
 The command above just re-encodes the frame pairs into a movie, but it's simple
 enough to use the phase correlation code to generate offsets (and now we
-migrate the multithreading to rows of the image, rather than separate images):
+migrate the multithreading to rows of the image, rather than separate images).
+
+There's one snag to be aware of here. Now that we're multithreading inside a
+single process and sharing an output pipe, every write to stdout needs to be
+small enough that it will happen atomically. I'm going to make this happen by
+binary-packing the outputs and then unpacking them immediately in the next
+step, which is fine because everything's numeric. This is a bit of an overdue
+optimization in any case; gzipping numbers in text is kind of egregious.
 
 ```sh
 $ ni e[ffmpeg -i v1.mp4 -to 00:05 -f image2pipe -c:v png -] \
@@ -583,14 +590,14 @@ $ ni e[ffmpeg -i v1.mp4 -to 00:05 -f image2pipe -c:v png -] \
                 push @maxs, my ($m, $mi, $mj) = $h->max2d_ind;
                 $h->set($mi, $mj, 0);
               }
-              print join("\t", $ENV{KEY}, $tx, $ty, @maxs) . "\n";
+              syswrite STDOUT, pack "Lss(dss)16", $ENV{KEY}, $tx, $ty, @maxs;
             }
             exit 0;
           }
         }
         waitpid $_, 0 for @pids;
         unlink($t) or die "not unlinking temp images: $!"' ] \
-     z:phc-v1-streaming-offsets \
+     :phc-v1-streaming-offsets-Lssdss16 bp'r rp"Lss(dss)16"' \
      fABCEFp'r a, b, c, d>=30 ? d-60 : d, e>=30 ? e-60 : e' \
      p'r a, b, c, d*4, e*4' \
      GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "black"' \
