@@ -286,7 +286,7 @@ $ ni n400e[ xargs -P24 -I{} ni \
 $ ffmpeg -i 0046-%04d.jpg 0046.webm
 ```
 
-[Here's the video](http://spencertipping.com/mm-0046.webm).
+[![lateral slide](https://img.youtube.com/vi/ZG5mH6ywe7U/0.jpg)](https://www.youtube.com/watch?v=ZG5mH6ywe7U)
 
 Not bad at all, especially considering that we're doing nothing to correct for
 rotation. Frames 66 and 76 should yield a much more accurate depth map for that
@@ -319,7 +319,7 @@ $ ni n400e[ xargs -P24 -I{} ni \
 $ ffmpeg -i 0066-%04d.jpg 0066.webm
 ```
 
-[Result](http://spencertipping.com/mm-0066.webm).
+[![lateral slide](https://img.youtube.com/vi/oEhnxTyzNHA/0.jpg)](https://www.youtube.com/watch?v=oEhnxTyzNHA)
 
 The buildings skew opposite directions in the two videos, which means depth
 inference is very sensitive to camera rotation. That's probably the next thing
@@ -394,7 +394,12 @@ $ ni phc-full-offsets fACDFGoz:phc-full-frames \
      GF[-y -qscale 5 phc-v1-motion.avi]
 ```
 
-**TODO:** Upload this to youtube once it's done
+This is a 34GB video and I don't want angry letters from CenturyLink, so I need
+to recompress using webm/VP9:
+
+```sh
+$ ffmpeg -i phc-v1-motion.avi -crf 15 -b:v 0 -threads 24 phc-v1-motion.webm
+```
 
 ### Aerial motion vectors
 These are way less straightforward than driving because drones are both more
