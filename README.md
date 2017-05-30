@@ -474,8 +474,7 @@ away since those are most likely outliers. Here's what this process looks like:
 
 ```sh
 $ export NI_ROW_SORT_BUFFER=16384M
-$ ni phc-full-offsets \
-     S8rp'a < 1000' \
+$ ni phc-full-offsets S8rp'a < 1000' \
      S8p'my ($f, undef, $x, $y) = F_ 0..3;
          my @mags = F_ map $_*3 + 4, 0..15;
          my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
@@ -489,8 +488,13 @@ $ ni phc-full-offsets \
            $cx /= $w; $cy /= $w;
          }
          r $f, $x, $y, $cx, $cy' \
-     oz\>phc-v1-subpixel-1k-sorted
+     oz:phc-v1-subpixel-1k-sorted \
+     p'r a, b, c, d*4, e*4' \
+     GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "#80000000"' \
+     GF[-y -qscale 5 phc-v1-subpixel.avi]
 ```
+
+**TODO:** Upload this once it's done
 
 ### Making this remotely scalable
 One of the major problems with the current approach is that we're losing all of
@@ -542,6 +546,7 @@ then that's six writes to every byte on the disk.
 The command above just re-encodes the frame pairs into a movie, but it's simple
 enough to use the phase correlation code to generate offsets (and now we
 migrate the multithreading to rows of the image, rather than separate images).
+Let's do this with `v3.mp4`, another driving video.
 
 There's one snag to be aware of here. Now that we're multithreading inside a
 single process and sharing an output pipe, every write to stdout needs to be
@@ -550,8 +555,11 @@ binary-packing the outputs and then unpacking them immediately in the next
 step, which is fine because everything's numeric. This is a bit of an overdue
 optimization in any case; gzipping numbers in text is kind of egregious.
 
+I'm also adding in the subpixel registration from above; this should improve
+the quality substantially.
+
 ```sh
-$ ni e[ffmpeg -i v1.mp4 -to 00:05 -f image2pipe -c:v png -] \
+$ ni e[ffmpeg -i v3.mp4 -f image2pipe -c:v png -] \
      IC[-size 3840x2160 xc:black -insert 0 -append] \
        [- -append -crop 3840x4320+0+2160\!] : \
      Ie[ perl -e \
@@ -597,11 +605,22 @@ $ ni e[ffmpeg -i v1.mp4 -to 00:05 -f image2pipe -c:v png -] \
         }
         waitpid $_, 0 for @pids;
         unlink($t) or die "not unlinking temp images: $!"' ] \
-     :phc-v1-streaming-offsets-Lssdss16 bp'r rp"Lss(dss)16"' \
-     fABCEFp'r a, b, c, d>=30 ? d-60 : d, e>=30 ? e-60 : e' \
-     p'r a, b, c, d*4, e*4' \
+     :phc-v3-streaming-offsets-Lssdss16 bf'Lss(dss)16' \
+     S24p'my ($f, $x, $y) = F_ 0..2;
+          my @mags = F_ map $_*3 + 3, 0..15;
+          my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 4, 0..15;
+          my @ys   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
+          my ($cx, $cy, $w) = ($xs[0], $ys[0], 0);
+          for (0..$#mags) {
+            next if !$mags[$_] || 3 < l2norm $cx - $xs[$_], $cy - $ys[$_];
+            $cx = $cx*$w + $xs[$_]*$mags[$_];
+            $cy = $cy*$w + $ys[$_]*$mags[$_];
+            $w += $mags[$_];
+            $cx /= $w; $cy /= $w;
+          }
+          r $f, $x, $y, $cx*4, $cy*4' o \
      GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "black"' \
-     GF[-y -qscale 5 phc-v1-streaming-motion.avi]
+     GF[-y -qscale 5 phc-v3-streaming-motion.avi]
 ```
 
 **TODO:** Upload this video once it's done
