@@ -701,7 +701,7 @@ Checking the frame size:
 
 ```sh
 $ mkdir afroduck-fast
-$ ffmpeg -i afroduck-fast.mkv -to 00:01 -f image2 afroduck-fast/%06d.png
+$ ffmpeg -i afroduck-fast.mkv -to 00:20 -f image2 afroduck-fast/%06d.png
 $ file afroduck-fast/000001.png
 afroduck-fast/000001.png: PNG image data, 1920 x 1080, 8-bit/color RGB, non-interlaced
 ```
@@ -712,21 +712,22 @@ we don't get separate RGB channels. The simplest workaround is to just skip
 those frames, ideal because they're overlay text.
 
 ```sh
-$ ni e[ffmpeg -i afroduck-fast.mkv -f image2pipe -c:v png -] \
+$ ni e[ffmpeg -ss 00:19 -i afroduck-fast.mkv -deinterlace \
+              -f image2pipe -c:v png -] \
      IC[-size 1920x1080 xc:black -insert 0 -append] \
        [- -append -crop 1920x2160+0+1080\!] : \
      Ie[ perl -e \
        'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
         use File::Temp qw/tmpnam/;
         BEGIN{$ts = 60;
-              $to = 15;
+              $to = 5;
               $maxs = 16;
               $fm = ones($ts/4, $ts/4)
                 ->append(zeroes $ts*3/4, $ts/4)
                 ->glue(1, zeroes $ts, $ts*3/4)}
         my $t  = tmpnam; system "cat > $t";
         my $i  = rpic $t, {FORMAT => "PNG"};
-        exit 0 unless $i->shape->shape->at(0) == 3;
+        exit 0 unless $i->shape->at(0) == 3;
         my $ia = $i->slice("X", "X", [0, 1079]);
         my $ib = $i->slice("X", "X", [1080, 2159]);
         my @pids;
@@ -759,7 +760,7 @@ $ ni e[ffmpeg -i afroduck-fast.mkv -f image2pipe -c:v png -] \
         }
         waitpid $_, 0 for @pids;
         unlink($t) or die "not unlinking temp images: $!"' ] \
-     :afroduck-fast-offsets-Lssdss16 bf'Lss(dss)16' \
+     :afroduck-fast-offsets-Lssdss16 bp'r rp"Lss(dss)16"' \
      S24p'my ($f, $x, $y) = F_ 0..2;
           my @mags = F_ map $_*3 + 3, 0..15;
           my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 4, 0..15;
