@@ -494,7 +494,7 @@ $ ni phc-full-offsets S8rp'a < 1000' \
      GF[-y -qscale 5 phc-v1-subpixel.avi]
 ```
 
-**TODO:** Upload this once it's done
+[![subpixel phase correlation](https://img.youtube.com/vi/buU-wan1kow/0.jpg)](https://www.youtube.com/watch?v=buU-wan1kow)
 
 ### Making this remotely scalable
 One of the major problems with the current approach is that we're losing all of
