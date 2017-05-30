@@ -624,3 +624,157 @@ $ ni e[ffmpeg -i v3.mp4 -f image2pipe -c:v png -] \
 ```
 
 **TODO:** Upload this video once it's done
+
+And another one:
+
+```sh
+$ ni e[ffmpeg -i v4.mp4 -f image2pipe -c:v png -] \
+     IC[-size 3840x2160 xc:black -insert 0 -append] \
+       [- -append -crop 3840x4320+0+2160\!] : \
+     Ie[ perl -e \
+       'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+        use File::Temp qw/tmpnam/;
+        BEGIN{$ts = 60;
+              $to = 15;
+              $maxs = 16;
+              $fm = ones($ts/4, $ts/4)
+                ->append(zeroes $ts*3/4, $ts/4)
+                ->glue(1, zeroes $ts, $ts*3/4)}
+        my $t  = tmpnam; system "cat > $t";
+        my $i  = rpic $t, {FORMAT => "PNG"};
+        my $ia = $i->slice("X", "X", [0, 2159]);
+        my $ib = $i->slice("X", "X", [2160, 4319]);
+        my @pids;
+        for my $tx (map $_*$to, 0..(3840-$ts)/$to) {
+          my $pid;
+          if ($pid = fork) {
+            push @pids, $pid;
+          } else {
+            for my $ty (map $_*$to, 0..(2160-$ts)/$to) {
+              my $i1 = $ia->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              my $i2 = $ib->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape($ts, $ts);
+              ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape($ts, $ts);
+              fftnd $i1, my $i1i = $i1*0;
+              fftnd $i2, my $i2i = $i2*0;
+              $_ *= $fm for $i1, $i2, $i1i, $i2i;
+              $i2i *= -1;
+              ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+                     my $hi = $i1i*$i2 + $i2i*$i1;
+              my $h = $hr**2 + $hi**2;
+              my @maxs;
+              until (@maxs >= $maxs * 3) {
+                push @maxs, my ($m, $mi, $mj) = $h->max2d_ind;
+                $h->set($mi, $mj, 0);
+              }
+              syswrite STDOUT, pack "Lss(dss)16", $ENV{KEY}, $tx, $ty, @maxs;
+            }
+            exit 0;
+          }
+        }
+        waitpid $_, 0 for @pids;
+        unlink($t) or die "not unlinking temp images: $!"' ] \
+     :phc-v4-streaming-offsets-Lssdss16 bf'Lss(dss)16' \
+     S24p'my ($f, $x, $y) = F_ 0..2;
+          my @mags = F_ map $_*3 + 3, 0..15;
+          my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 4, 0..15;
+          my @ys   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
+          my ($cx, $cy, $w) = ($xs[0], $ys[0], 0);
+          for (0..$#mags) {
+            next if !$mags[$_] || 3 < l2norm $cx - $xs[$_], $cy - $ys[$_];
+            $cx = $cx*$w + $xs[$_]*$mags[$_];
+            $cy = $cy*$w + $ys[$_]*$mags[$_];
+            $w += $mags[$_];
+            $cx /= $w; $cy /= $w;
+          }
+          r $f, $x, $y, $cx*4, $cy*4' o \
+     GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "black"' \
+     GF[-y -qscale 5 phc-v4-streaming-motion.avi]
+```
+
+### Nighttime vs daytime
+I'm interested to see how well all of this works for nighttime videos, so let's
+take a look at the Afroduck speed lap (edited version, unfortunately; the
+original was taken down).
+
+Checking the frame size:
+
+```sh
+$ mkdir afroduck-fast
+$ ffmpeg -i afroduck-fast.mkv -to 00:01 -f image2 afroduck-fast/%06d.png
+$ file afroduck-fast/000001.png
+afroduck-fast/000001.png: PNG image data, 1920 x 1080, 8-bit/color RGB, non-interlaced
+```
+
+Now time for a modified phase correlation setup. Besides the different image
+size, some frames are encoded in black/white -- which means when PDL loads them
+we don't get separate RGB channels. The simplest workaround is to just skip
+those frames, ideal because they're overlay text.
+
+```sh
+$ ni e[ffmpeg -i afroduck-fast.mkv -f image2pipe -c:v png -] \
+     IC[-size 1920x1080 xc:black -insert 0 -append] \
+       [- -append -crop 1920x2160+0+1080\!] : \
+     Ie[ perl -e \
+       'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
+        use File::Temp qw/tmpnam/;
+        BEGIN{$ts = 60;
+              $to = 15;
+              $maxs = 16;
+              $fm = ones($ts/4, $ts/4)
+                ->append(zeroes $ts*3/4, $ts/4)
+                ->glue(1, zeroes $ts, $ts*3/4)}
+        my $t  = tmpnam; system "cat > $t";
+        my $i  = rpic $t, {FORMAT => "PNG"};
+        exit 0 unless $i->shape->shape->at(0) == 3;
+        my $ia = $i->slice("X", "X", [0, 1079]);
+        my $ib = $i->slice("X", "X", [1080, 2159]);
+        my @pids;
+        for my $tx (map $_*$to, 0..(1920-$ts)/$to) {
+          my $pid;
+          if ($pid = fork) {
+            push @pids, $pid;
+          } else {
+            for my $ty (map $_*$to, 0..(1080-$ts)/$to) {
+              my $i1 = $ia->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              my $i2 = $ib->slice("X", [$tx, $tx+$ts-1], [$ty, $ty+$ts-1]);
+              ($i1 = $i1->slice(0) + $i1->slice(1) + $i1->slice(2))->reshape($ts, $ts);
+              ($i2 = $i2->slice(0) + $i2->slice(1) + $i2->slice(2))->reshape($ts, $ts);
+              fftnd $i1, my $i1i = $i1*0;
+              fftnd $i2, my $i2i = $i2*0;
+              $_ *= $fm for $i1, $i2, $i1i, $i2i;
+              $i2i *= -1;
+              ifftnd my $hr = $i1*$i2 - $i1i*$i2i,
+                     my $hi = $i1i*$i2 + $i2i*$i1;
+              my $h = $hr**2 + $hi**2;
+              my @maxs;
+              until (@maxs >= $maxs * 3) {
+                push @maxs, my ($m, $mi, $mj) = $h->max2d_ind;
+                $h->set($mi, $mj, 0);
+              }
+              syswrite STDOUT, pack "Lss(dss)16", $ENV{KEY}, $tx, $ty, @maxs;
+            }
+            exit 0;
+          }
+        }
+        waitpid $_, 0 for @pids;
+        unlink($t) or die "not unlinking temp images: $!"' ] \
+     :afroduck-fast-offsets-Lssdss16 bf'Lss(dss)16' \
+     S24p'my ($f, $x, $y) = F_ 0..2;
+          my @mags = F_ map $_*3 + 3, 0..15;
+          my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 4, 0..15;
+          my @ys   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
+          my ($cx, $cy, $w) = ($xs[0], $ys[0], 0);
+          for (0..$#mags) {
+            next if !$mags[$_] || 3 < l2norm $cx - $xs[$_], $cy - $ys[$_];
+            $cx = $cx*$w + $xs[$_]*$mags[$_];
+            $cy = $cy*$w + $ys[$_]*$mags[$_];
+            $w += $mags[$_];
+            $cx /= $w; $cy /= $w;
+          }
+          r $f, $x, $y, $cx*4, $cy*4' o \
+     GAJ1600x900'plot [0:1920] [0:1080] "-" with vectors lc rgb "black"' \
+     GF[-y -qscale 5 afroduck-fast-motion.avi]
+```
+
+**TODO:** Upload this video once it's done
