@@ -400,7 +400,7 @@ then uploaded the video from there. CenturyLink says they only count downloaded
 data in their excessive use policy so I'm reasonably confident they won't send
 me angry letters for uploading this much. (We'll see.)
 
-**TODO:** Link the video here once it's uploaded
+[![motion vectors](https://img.youtube.com/vi/XuB35x2V9u0/0.jpg)](https://www.youtube.com/watch?v=XuB35x2V9u0)
 
 ### Aerial motion vectors
 These are way less straightforward than driving because drones are both more
