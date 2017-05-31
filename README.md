@@ -719,7 +719,7 @@ $ ni e[ffmpeg -ss 00:19 -i afroduck-fast.mkv -deinterlace \
      Ie[ perl -e \
        'use PDL; use PDL::FFT; use PDL::Image2D; use PDL::IO::Pic;
         use File::Temp qw/tmpnam/;
-        BEGIN{$ts = 60;
+        BEGIN{$ts = 120;
               $to = 5;
               $maxs = 16;
               $fm = ones($ts/4, $ts/4)
@@ -763,8 +763,8 @@ $ ni e[ffmpeg -ss 00:19 -i afroduck-fast.mkv -deinterlace \
      :afroduck-fast-offsets-Lssdss16 bp'r rp"Lss(dss)16"' \
      S24p'my ($f, $x, $y) = F_ 0..2;
           my @mags = F_ map $_*3 + 3, 0..15;
-          my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 4, 0..15;
-          my @ys   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
+          my @xs   = map $_<60 ? $_ : $_-120, F_ map $_*3 + 4, 0..15;
+          my @ys   = map $_<60 ? $_ : $_-120, F_ map $_*3 + 5, 0..15;
           my ($cx, $cy, $w) = ($xs[0], $ys[0], 0);
           for (0..$#mags) {
             next if !$mags[$_] || 3 < l2norm $cx - $xs[$_], $cy - $ys[$_];
