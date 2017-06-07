@@ -866,7 +866,7 @@ input points to minimize runtime):
 ```sh
 $ ni ::mvs[nE5p'r rand() - 0.5, rand() - 0.5, rand() + 2' \
               p'r a/c, b/c, a/(c-0.1) - a/c, b/(c-0.1) - b/c'] \
-     1p'use PDL; r zeroes(150)->xlinvals(-1, 1)->list' p'cart [F_], [F_]' \
+     1p'use PDL; r zeroes(400)->xlinvals(-1, 1)->list' p'cart [F_], [F_]' \
      S24p'^{use PDL; use PDL::MatrixOps;
             ($ox, $oy, $dx, $dy) = (pdl(a_ mvs), pdl(b_ mvs),
                                     pdl(c_ mvs), pdl(d_ mvs));
@@ -887,4 +887,44 @@ $ ni ::mvs[nE5p'r rand() - 0.5, rand() - 0.5, rand() + 2' \
 
 ![image](http://storage6.static.itmages.com/i/17/0607/h_1496804504_6589574_57a7ceea9c.png)
 
-That's awkward.
+That's awkward. Getting more detail around the base of the curve, in particular
+the low diagonal:
+
+![image](http://storage4.static.itmages.com/i/17/0607/h_1496806275_5304104_1862c2c2bc.png)
+
+This is a problem because straightforward simplex optimization doesn't get
+anywhere:
+
+```sh
+$ ni ::mvs[nE5p'r rand() - 0.5, rand() - 0.5, rand() + 2' \
+              p'r a/c, b/c, a/(c-0.1) - a/c, b/(c-0.1) - b/c'] \
+     1p'^{use PDL; use PDL::MatrixOps; use PDL::Opt::Simplex;
+          ($ox, $oy, $dx, $dy) = (pdl(a_ mvs), pdl(b_ mvs),
+                                  pdl(c_ mvs), pdl(d_ mvs));
+          $n = 100}
+        r simplex
+          pdl([rand()-0.5, rand()-0.5]),
+          1e-12,
+          1e-7,
+          10000,
+          sub {
+            my ($rx, $ry) = $_[0]->list;
+            my $m = zeroes $n + 2, $n * 2;
+            $m->set($_,     $_ << 1,     $dx->at($_) + $rx)
+              ->set($_,     $_ << 1 | 1, $dy->at($_) + $ry)
+              ->set($n,     $_ << 1,     -1)
+              ->set($n + 1, $_ << 1 | 1, -1) for 0..$n-1;
+            my $mt  = $m->transpose;
+            my $rhs = $ox->slice([0, $n-1])->transpose
+             ->append($oy->slice([0, $n-1])->transpose)->flat->transpose;
+            my $s   = ($mt x $m)->inv x $mt x $rhs;
+            ($m x $s - $rhs)->flat->abs->average;
+          },
+          sub {}'
+
+# this answer is way off; should be [0, 0]
+[ [0.39630238 -0.4545073]]      0       0.0086801315582684
+```
+
+The system isn't inherently unstable, though, because a human can look at the
+configuration and say when it's aligned [**TODO:** prove this].
