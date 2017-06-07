@@ -779,3 +779,112 @@ $ ni e[ffmpeg -ss 00:19 -i afroduck-fast.mkv -deinterlace \
 ```
 
 **TODO:** Upload this video once it's done
+
+## 3D motion
+Most of the motion in these videos is into or out of the frame, which means
+we'll have a vanishing point. It's not always obvious where that vanishing
+point is, however; if the camera rotates at all then each motion vector will be
+offset by the same unknown amount.
+
+Here's what the vectors look like if we move towards a random cloud:
+
+```sh
+$ ni nE4p'r rand() - 0.5, rand() - 0.5, rand() + 2' \
+        p'r a/c, b/c, a/(c-0.1) - a/c, b/(c-0.1) - b/c' \
+  | nfu -p 'with vectors'
+```
+
+![image](http://pix.toile-libre.org/upload/original/1496710343.png)
+
+And here's what it looks like if we add a uniform offset for a camera rotation:
+
+```sh
+$ ni nE4p'r rand() - 0.5, rand() - 0.5, rand() + 2' \
+        p'r a/c, b/c, a/(c-0.1) - a/c + 0.005, b/(c-0.1) - b/c + 0.002' \
+  | nfu -p 'with vectors'
+```
+
+![image](http://pix.toile-libre.org/upload/original/1496710487.png)
+
+It's subtle, but the offset is recoverable; you can see the vectors misaligning
+if you zoom in:
+
+![image](http://pix.toile-libre.org/upload/original/1496710672.png)
+
+Now it's time for the math (or at least for a non-platitudinous answer).
+
+### Recovering camera rotation
+The misaligned vectors happen because they didn't all start out at the same
+distance from the camera and the magnitude of a tile's motionvector is
+1/distance. The direction of each motionvector, absent camera rotation, is
+always towards or away from the vanishing point.
+
+Initially we have an unknown vector `R` for rotation, an unknown `v` for the
+vanishing point, and each input tile (specified by `o` for offset and `Δ` for
+motion) carries an unknown `ρ` specifying the vector multiple required to reach
+the vanishing point. So we have this:
+
+```
+o1 + ρ1(Δ1 + R) = v
+o2 + ρ2(Δ2 + R) = v
+...
+```
+
+This isn't a linear system, but it's easy to solve for `R` numerically. Once we
+know `R` we have:
+
+```
+o1 + ρ1Δ1 = v
+o2 + p2Δ2 = v
+...
+```
+
+Rewriting it all as scalar terms:
+
+```
+Δx1ρ1 - vx = ox1
+Δy1ρ1 - vy = oy1
+...
+```
+
+This forms a simple matrix system that converges to twice as many equations as
+variables. Here's the layout and coefficients:
+
+```
+   ρ1   ρ2  ... ρN vx vy
+ | Δx1             -1    |   | ox1 |
+ | Δy1                -1 |   | oy1 |
+ |      Δx2        -1    | = | ox2 |
+ |      Δy2           -1 |   | oy2 |
+            ...                ...
+```
+
+But to get there we first need to know `R`. Here's what the error contour looks
+like if we just assume different values for it (I'm going to use a handful of
+input points to minimize runtime):
+
+```sh
+$ ni ::mvs[nE5p'r rand() - 0.5, rand() - 0.5, rand() + 2' \
+              p'r a/c, b/c, a/(c-0.1) - a/c, b/(c-0.1) - b/c'] \
+     1p'use PDL; r zeroes(150)->xlinvals(-1, 1)->list' p'cart [F_], [F_]' \
+     S24p'^{use PDL; use PDL::MatrixOps;
+            ($ox, $oy, $dx, $dy) = (pdl(a_ mvs), pdl(b_ mvs),
+                                    pdl(c_ mvs), pdl(d_ mvs));
+            $n = 10}
+          my ($rx, $ry) = F_;
+          my $m = zeroes $n + 2, $n * 2;
+          $m->set($_,     $_ << 1,     $dx->at($_) + $rx)
+            ->set($_,     $_ << 1 | 1, $dy->at($_) + $ry)
+            ->set($n,     $_ << 1,     -1)
+            ->set($n + 1, $_ << 1 | 1, -1) for 0..$n-1;
+          my $mt  = $m->transpose;
+          my $rhs = $ox->slice([0, $n-1])->transpose
+           ->append($oy->slice([0, $n-1])->transpose)->flat->transpose;
+          my $s   = ($mt x $m)->inv x $mt x $rhs;
+          r $rx, $ry, ($m x $s - $rhs)->flat->abs->average' \
+     z\>r-numsolve-error
+```
+
+![image](http://storage6.static.itmages.com/i/17/0607/h_1496804504_6589574_57a7ceea9c.png)
+
+That's awkward.
