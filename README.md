@@ -674,7 +674,7 @@ $ ni e[ffmpeg -i v4.mp4 -f image2pipe -c:v png -] \
         }
         waitpid $_, 0 for @pids;
         unlink($t) or die "not unlinking temp images: $!"' ] \
-     :phc-v4-streaming-offsets-Lssdss16 bf'Lss(dss)16' \
+     :phc-v4-streaming-offsets-Lssdss16 bp'r rp"Lss(dss)16"' \
      S24p'my ($f, $x, $y) = F_ 0..2;
           my @mags = F_ map $_*3 + 3, 0..15;
           my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 4, 0..15;
