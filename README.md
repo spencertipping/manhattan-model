@@ -474,20 +474,20 @@ away since those are most likely outliers. Here's what this process looks like:
 
 ```sh
 $ export NI_ROW_SORT_BUFFER=16384M
-$ ni phc-full-offsets S8rp'a < 1000' \
-     S8p'my ($f, undef, $x, $y) = F_ 0..3;
-         my @mags = F_ map $_*3 + 4, 0..15;
-         my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
-         my @ys   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 6, 0..15;
-         my ($cx, $cy, $w) = ($xs[0], $ys[0], 0);
-         for (0..$#mags) {
-           next if 3 < l2norm $cx - $xs[$_], $cy - $ys[$_];
-           $cx = $cx*$w + $xs[$_]*$mags[$_];
-           $cy = $cy*$w + $ys[$_]*$mags[$_];
-           $w += $mags[$_];
-           $cx /= $w; $cy /= $w;
-         }
-         r $f, $x, $y, $cx, $cy' \
+$ ni phc-full-offsets \
+     S24p'my ($f, undef, $x, $y) = F_ 0..3;
+          my @mags = F_ map $_*3 + 4, 0..15;
+          my @xs   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 5, 0..15;
+          my @ys   = map $_<30 ? $_ : $_-60, F_ map $_*3 + 6, 0..15;
+          my ($cx, $cy, $w) = ($xs[0], $ys[0], 0);
+          for (0..$#mags) {
+            next if 3 < l2norm $cx - $xs[$_], $cy - $ys[$_];
+            $cx = $cx*$w + $xs[$_]*$mags[$_];
+            $cy = $cy*$w + $ys[$_]*$mags[$_];
+            $w += $mags[$_];
+            $cx /= $w; $cy /= $w;
+          }
+          r $f, $x, $y, $cx, $cy' \
      oz:phc-v1-subpixel-1k-sorted \
      p'r a, b, c, d*4, e*4' \
      GAJ1600x900'plot [0:3840] [0:2160] "-" with vectors lc rgb "#80000000"' \
