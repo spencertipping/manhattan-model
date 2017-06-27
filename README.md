@@ -692,6 +692,8 @@ $ ni e[ffmpeg -i v4.mp4 -f image2pipe -c:v png -] \
      GF[-y -qscale 5 phc-v4-streaming-motion.avi]
 ```
 
+[![motion vectors](https://img.youtube.com/vi/4hi5yrqthIU/0.jpg)](https://www.youtube.com/watch?v=4hi5yrqthIU)
+
 ### Nighttime vs daytime
 I'm interested to see how well all of this works for nighttime videos, so let's
 take a look at the Afroduck speed lap (edited version, unfortunately; the
